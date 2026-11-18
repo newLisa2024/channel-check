@@ -15,14 +15,30 @@ from .parse import ChannelInfo, Post
 THRESHOLDS = {
     "mature_post_age_hours": 48,     # views still grow fast during the first 1-2 days
     "min_mature_posts": 8,           # fewer posts -> low confidence
-    "err_red": 0.08,                 # median views / subscribers below 8% -> red flag
-    "err_green": 0.20,               # 20%+ is healthy for most niches
+    # Reach (median views / subscribers). Base values for channels posting < 1.5 times a day;
+    # frequent posting lowers per-post reach, see FREQUENCY_FACTORS.
+    "err_critical": 0.03,            # below this the audience is mostly dead or fake -> red
+    "err_low": 0.08,                 # below this: red only together with fake signs, otherwise yellow
+    "err_green": 0.20,               # this and above is healthy
     "cv_too_uniform": 0.10,          # views almost identical on every post -> possible bot views
     "reaction_rate_low": 0.002,      # < 0.2% reactions per view on a big channel -> suspicious
+    "reaction_rate_high": 0.08,      # > 8% reactions per view is unusual -> check manually
     "reaction_check_min_views": 3000,
     "ad_share_high": 0.40,           # 40%+ of posts are ads -> audience is tired of ads
     "inactive_days": 30,
 }
+
+# (min posts per day, multiplier for err_* thresholds)
+FREQUENCY_FACTORS = [(3.0, 0.6), (1.5, 0.75), (0.0, 1.0)]
+
+
+def frequency_factor(posts_per_day: float | None) -> float:
+    if posts_per_day is None:
+        return 1.0
+    for min_ppd, factor in FREQUENCY_FACTORS:
+        if posts_per_day >= min_ppd:
+            return factor
+    return 1.0
 
 
 @dataclass
@@ -52,6 +68,7 @@ class Report:
     forwarded_share: float | None = None
     price: float | None = None
     cpm: float | None = None
+    err_factor: float = 1.0
     flags: list[Flag] = field(default_factory=list)
     verdict: str = "unknown"    # green | yellow | red | unknown
     confidence: str = "low"     # low | medium | high
@@ -124,6 +141,10 @@ def analyze(channel: ChannelInfo, posts: list[Post], price: float | None = None,
 def _score(r: Report, now: datetime) -> None:
     t = THRESHOLDS
     flags = r.flags
+    r.err_factor = frequency_factor(r.posts_per_day)
+    err_critical = t["err_critical"] * r.err_factor
+    err_low = t["err_low"] * r.err_factor
+    err_green = t["err_green"] * r.err_factor
 
     if r.mature_posts >= 30:
         r.confidence = "high"
@@ -132,25 +153,40 @@ def _score(r: Report, now: datetime) -> None:
     else:
         flags.append(Flag("yellow", "few_posts", {"n": r.mature_posts}))
 
+    # Signs of bought views / fake audience, evaluated before the reach verdict.
+    uniform = r.views_cv is not None and r.mature_posts >= 15 and r.views_cv < t["cv_too_uniform"]
+    big_enough = (r.median_views or 0) >= t["reaction_check_min_views"]
+    low_reactions = r.reaction_rate is not None and big_enough and r.reaction_rate < t["reaction_rate_low"]
+    fake_signs = uniform or low_reactions
+
     if r.err is not None:
         pct = r.err * 100
-        if r.err < t["err_red"]:
-            flags.append(Flag("red", "low_err", {"pct": pct}))
-        elif r.err < t["err_green"]:
+        if r.err < err_critical:
+            flags.append(Flag("red", "very_low_err", {"pct": pct}))
+        elif r.err < err_low:
+            if fake_signs:
+                flags.append(Flag("red", "low_err", {"pct": pct}))
+            else:
+                flags.append(Flag("yellow", "inactive_subs", {"pct": pct}))
+        elif r.err < err_green:
             flags.append(Flag("yellow", "mid_err", {"pct": pct}))
         else:
             flags.append(Flag("green", "good_err", {"pct": pct}))
         if r.err > 1.5:
             flags.append(Flag("yellow", "views_exceed_subs", {}))
+        if r.err_factor < 1.0:
+            flags.append(Flag("green", "frequent_posting", {"ppd": r.posts_per_day}))
     elif r.channel.subscribers is None:
         flags.append(Flag("yellow", "no_subs", {}))
 
-    if r.views_cv is not None and r.mature_posts >= 15 and r.views_cv < t["cv_too_uniform"]:
+    if uniform:
         flags.append(Flag("red", "uniform_views", {}))
 
-    if r.reaction_rate is not None and (r.median_views or 0) >= t["reaction_check_min_views"]:
-        if r.reaction_rate < t["reaction_rate_low"]:
+    if r.reaction_rate is not None and big_enough:
+        if low_reactions:
             flags.append(Flag("yellow", "low_reactions", {"pct": r.reaction_rate * 100}))
+        elif r.reaction_rate > t["reaction_rate_high"]:
+            flags.append(Flag("yellow", "high_reactions", {"pct": r.reaction_rate * 100}))
         else:
             flags.append(Flag("green", "reactions_ok", {"pct": r.reaction_rate * 100}))
 
@@ -172,4 +208,4 @@ def _score(r: Report, now: datetime) -> None:
     elif yellows >= 2 or r.confidence == "low":
         r.verdict = "yellow"
     else:
-        r.verdict = "green" if r.err is not None and r.err >= t["err_green"] else "yellow"
+        r.verdict = "green" if r.err is not None and r.err >= err_green else "yellow"

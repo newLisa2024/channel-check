@@ -1,0 +1,5 @@
+# One public channel per line: name, @name or t.me link. Lines starting with # are ignored.
+durov
+oqode
+autogenerator_reels
+aikarlo

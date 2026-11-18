@@ -59,13 +59,13 @@ def short(n: int) -> str:
     return str(n)
 
 
-def build(name, title, subs, n_posts, view_fn, reaction_fn, ad_every, now):
+def build(name, title, subs, n_posts, view_fn, reaction_fn, ad_every, now, hours_step=14):
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / f"{name}_card.html").write_text(card(name, title, subs), encoding="utf-8")
     posts = []
     for i in range(n_posts):
         post_id = 1000 - i
-        when = now - timedelta(hours=10 + i * 14)
+        when = now - timedelta(hours=10 + i * hours_step)
         views = view_fn(i)
         if ad_every and i % ad_every == ad_every - 1:
             text = "Реклама. ООО Ромашка. erid: 2SDnje. Подписывайтесь на наш канал <a href='https://t.me/promo_partner'>@promo_partner</a>"
@@ -91,6 +91,15 @@ def main():
     build("suspicious_test", "Suspicious Test Channel", 50000, 60,
           lambda i: 400 + random.randint(-8, 8),
           lambda v: [("👍", "1")], 2, now)
+    # Sleepy (like a channel grown with ads/giveaways): 40 000 subscribers, ~2K natural views (5% reach),
+    # lively readers with ~5% reactions. Should be yellow "inactive subscribers", not red.
+    build("sleepy_test", "Sleepy Test Channel", 40000, 60,
+          lambda i: random.randint(1400, 2800),
+          lambda v: [("❤", str(int(v * 0.04))), ("🔥", str(int(v * 0.01)))], 10, now)
+    # Frequent: 3+ posts a day with 7% reach and natural numbers. Should be yellow, not red.
+    build("frequent_test", "Frequent Test Channel", 8000, 90,
+          lambda i: random.randint(400, 750),
+          lambda v: [("👍", str(max(int(v * 0.01), 1)))], 0, now, hours_step=7)
     print(f"Fixtures written to {OUT}")
 
 

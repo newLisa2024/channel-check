@@ -3,13 +3,16 @@
     python -m tgcheck https://t.me/somechannel --price 50 --lang ru
     python -m tgcheck somechannel --save-html debug/     # keep raw pages for debugging
     python -m tgcheck somechannel --from-html debug/     # re-run offline on saved pages
+    python -m tgcheck --batch channels.txt --csv results.csv   # many channels -> one table
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import sys
+import time
 from pathlib import Path
 
 from .fetch import ChannelFetcher, FetchError, normalize_channel
@@ -61,24 +64,92 @@ def check(name: str, card_html: str, pages: list[str], max_posts: int, price: fl
     return analyze(info, posts, price=price)
 
 
+CSV_FIELDS = [
+    "username", "title", "subscribers", "posts_analyzed", "posts_per_day", "median_views", "err",
+    "err_factor", "views_cv", "reaction_rate", "ad_share", "verdict", "confidence", "flags", "error",
+]
+
+
+def read_batch(path: Path) -> list[str]:
+    channels = []
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line:
+            channels.append(line)
+    return channels
+
+
+def run_one(raw: str, args):
+    name = normalize_channel(raw)
+    if args.from_html:
+        card_html, pages = collect_offline(name, args.from_html)
+    else:
+        card_html, pages = collect_online(name, args.posts, args.save_html)
+    return check(name, card_html, pages, args.posts, args.price)
+
+
+def run_batch(args) -> int:
+    channels = read_batch(args.batch)
+    if not channels:
+        print("❌ The batch file has no channels.", file=sys.stderr)
+        return 1
+    out = args.csv or args.batch.with_suffix(".csv")
+    rows = []
+    for index, raw in enumerate(channels, start=1):
+        print(f"[{index}/{len(channels)}] {raw} ... ", end="", flush=True)
+        row = {field: "" for field in CSV_FIELDS}
+        row["username"] = raw
+        try:
+            report = run_one(raw, args)
+            data = to_dict(report)
+            row.update({
+                "username": data["channel"]["username"], "title": data["channel"]["title"],
+                "subscribers": data["channel"]["subscribers"],
+                **{k: data[k] for k in ("posts_analyzed", "posts_per_day", "median_views", "err", "err_factor",
+                                        "views_cv", "reaction_rate", "ad_share", "verdict", "confidence")},
+                "flags": " ".join(f"{f['level']}:{f['code']}" for f in data["flags"]),
+            })
+            for key in ("err", "views_cv", "reaction_rate", "ad_share"):
+                if isinstance(row[key], float):
+                    row[key] = round(row[key], 4)
+            print(f"{row['verdict']} (reach {row['err']})")
+        except FetchError as exc:
+            row["error"] = str(exc)
+            print(f"error: {exc}")
+        rows.append(row)
+        if not args.from_html and index < len(channels):
+            time.sleep(args.batch_delay)  # be polite to t.me between channels
+
+    # utf-8-sig so Excel opens Cyrillic and emoji correctly
+    with out.open("w", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=CSV_FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
+    print(f"\nSaved {len(rows)} rows to {out}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="tgcheck", description="Should you buy an ad in this Telegram channel?")
-    parser.add_argument("channel", help="@name, name or t.me link of a public channel")
+    parser.add_argument("channel", nargs="?", help="@name, name or t.me link of a public channel")
     parser.add_argument("--posts", type=int, default=100, help="how many recent posts to analyze (default 100)")
     parser.add_argument("--price", type=float, help="the price the admin asks for one ad post")
     parser.add_argument("--lang", default="en", choices=["en", "ru"])
     parser.add_argument("--json", type=Path, help="also save the full result as JSON")
     parser.add_argument("--save-html", type=Path, help="save downloaded pages to this folder")
     parser.add_argument("--from-html", type=Path, help="analyze pages saved earlier instead of downloading")
+    parser.add_argument("--batch", type=Path, help="text file with one channel per line (# for comments)")
+    parser.add_argument("--csv", type=Path, help="where to save the batch table (default: <batch file>.csv)")
+    parser.add_argument("--batch-delay", type=float, default=3.0, help="pause between channels in batch mode, seconds")
     args = parser.parse_args(argv)
 
+    if args.batch:
+        return run_batch(args)
+    if not args.channel:
+        parser.error("give a channel or --batch FILE")
+
     try:
-        name = normalize_channel(args.channel)
-        if args.from_html:
-            card_html, pages = collect_offline(name, args.from_html)
-        else:
-            card_html, pages = collect_online(name, args.posts, args.save_html)
-        report = check(name, card_html, pages, args.posts, args.price)
+        report = run_one(args.channel, args)
     except FetchError as exc:
         print(f"❌ {exc}", file=sys.stderr)
         return 1

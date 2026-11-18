@@ -57,7 +57,7 @@ def test_suspicious_channel_is_red():
     r = run("suspicious_test")
     codes = {f.code for f in r.flags}
     assert r.verdict == "red"
-    assert {"low_err", "uniform_views", "ad_heavy"} <= codes
+    assert {"very_low_err", "uniform_views", "ad_heavy"} <= codes
 
 
 def test_title_without_badge():
@@ -82,3 +82,39 @@ def test_promo_detection(text, is_promo):
             f'<div class="tgme_widget_message_text">{text}</div></div>')
     posts, _ = parse_preview(html, "me_channel")
     assert bool(posts[0].promo_of) is is_promo
+
+
+def test_sleepy_channel_is_yellow_not_red():
+    r = run("sleepy_test")
+    codes = {f.code for f in r.flags}
+    assert r.verdict == "yellow"
+    assert "inactive_subs" in codes
+    assert not any(f.level == "red" for f in r.flags)
+
+
+def test_frequent_posting_softens_thresholds():
+    r = run("frequent_test")
+    codes = {f.code for f in r.flags}
+    assert r.posts_per_day >= 3
+    assert r.err_factor < 1
+    assert "frequent_posting" in codes
+    assert r.verdict != "red"
+
+
+def test_reach_headline_and_price():
+    from tgcheck.report import render
+    r = run("healthy_test", price=60)
+    text = render(r, "ru")
+    assert "увидят около" in text and "за 1000 реальных просмотров" in text
+
+
+def test_batch_mode_writes_csv(tmp_path):
+    import csv
+    from tgcheck.__main__ import main
+    batch = tmp_path / "channels.txt"
+    batch.write_text("# test list\nhealthy_test\n@suspicious_test\nt.me/+private_invite\n", encoding="utf-8")
+    out = tmp_path / "out.csv"
+    assert main(["--batch", str(batch), "--csv", str(out), "--from-html", str(FIXTURES)]) == 0
+    rows = list(csv.DictReader(out.open(encoding="utf-8-sig")))
+    assert [r["verdict"] for r in rows[:2]] == ["green", "red"]
+    assert rows[2]["error"]  # private link is reported, not crashing the batch

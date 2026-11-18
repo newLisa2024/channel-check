@@ -9,7 +9,11 @@ FLAG_TEXT = {
         "no_preview": "The channel has disabled its public web preview, so post views can't be checked.",
         "no_posts": "No public posts found.",
         "few_posts": "Only {n} posts are old enough to judge reach, so the verdict is a rough estimate.",
-        "low_err": "Only {pct:.1f}% of subscribers see a typical post. Many subscribers are inactive or fake.",
+        "very_low_err": "Only {pct:.1f}% of subscribers see a typical post. Most of the audience is inactive or fake.",
+        "low_err": "Only {pct:.1f}% of subscribers see a typical post, and there are signs of bought views or followers.",
+        "inactive_subs": "Only {pct:.1f}% of subscribers see a typical post. The readers look real, but many subscribers are inactive: pay for actual views, not for the subscriber count.",
+        "frequent_posting": "The channel posts often ({ppd:.1f} posts a day), so each post naturally gets a smaller share of subscribers. Reach thresholds were adjusted.",
+        "high_reactions": "Unusually many reactions ({pct:.2f}% of views). It may be a very loyal audience, but reactions can also be bought: check a few posts manually.",
         "mid_err": "A typical post reaches {pct:.1f}% of subscribers (average).",
         "good_err": "A typical post reaches {pct:.1f}% of subscribers (healthy).",
         "views_exceed_subs": "Posts get far more views than the channel has subscribers: reach may come from reposts, or views may be boosted.",
@@ -25,7 +29,11 @@ FLAG_TEXT = {
         "no_preview": "У канала отключён публичный веб-просмотр, поэтому охваты постов проверить нельзя.",
         "no_posts": "Публичных постов не найдено.",
         "few_posts": "Для оценки охвата достаточно «взрослых» постов только {n}, поэтому вывод приблизительный.",
-        "low_err": "Обычный пост видят только {pct:.1f}% подписчиков. Много неактивных или ненастоящих подписчиков.",
+        "very_low_err": "Обычный пост видят только {pct:.1f}% подписчиков. Большая часть аудитории неактивна или ненастоящая.",
+        "low_err": "Обычный пост видят только {pct:.1f}% подписчиков, и есть признаки накрутки просмотров или подписчиков.",
+        "inactive_subs": "Обычный пост видят только {pct:.1f}% подписчиков. Читатели выглядят живыми, но многие подписчики неактивны: платите за реальные просмотры, а не за число подписчиков.",
+        "frequent_posting": "Канал публикует часто ({ppd:.1f} поста в день), поэтому каждый пост естественно видит меньшая доля подписчиков. Пороги охвата скорректированы.",
+        "high_reactions": "Необычно много реакций ({pct:.2f}% от просмотров). Это может быть очень лояльная аудитория, но реакции тоже накручивают: проверьте пару постов вручную.",
         "mid_err": "Обычный пост видят {pct:.1f}% подписчиков (средний уровень).",
         "good_err": "Обычный пост видят {pct:.1f}% подписчиков (хороший уровень).",
         "views_exceed_subs": "Просмотров намного больше, чем подписчиков: охват может идти из репостов, а может быть накручен.",
@@ -51,6 +59,8 @@ TEXT = {
         "cpm": "Your price per 1,000 views", "conf": "Confidence", "top": "Top posts",
         "flags": "Findings", "na": "n/a", "views": "views",
         "note": "Heuristic estimate from public data only. Always compare with other channels in the same niche.",
+        "reach": "👀 Your ad post will most likely be seen by about {n} people",
+        "reach_price": "💰 At your price that is {cpm} per 1,000 real views",
     },
     "ru": {
         "verdict": {"green": "🟢 Аудитория выглядит живой", "yellow": "🟡 Есть сомнения, проверьте внимательнее",
@@ -63,6 +73,8 @@ TEXT = {
         "cpm": "Ваша цена за 1000 просмотров", "conf": "Уверенность", "top": "Лучшие посты",
         "flags": "Что мы заметили", "na": "н/д", "views": "просмотров",
         "note": "Оценка по публичным данным, это не гарантия. Сравнивайте с другими каналами той же тематики.",
+        "reach": "👀 Ваш рекламный пост, скорее всего, увидят около {n} человек",
+        "reach_price": "💰 При вашей цене это {cpm} за 1000 реальных просмотров",
     },
 }
 
@@ -81,6 +93,12 @@ def render(r: Report, lang: str = "en") -> str:
         "",
         f"{tx['verdict'][r.verdict]}",
         f"{tx['conf']}: {tx['confidence'][r.confidence]}",
+    ]
+    if r.median_views:
+        lines.append(tx["reach"].format(n=_num(r.median_views, na)))
+        if r.cpm is not None:
+            lines.append(tx["reach_price"].format(cpm=r.cpm))
+    lines += [
         "",
         f"• {tx['subs']}: {_num(ch.subscribers, na)}",
         f"• {tx['posts']}: {r.posts_analyzed}",
@@ -100,8 +118,6 @@ def render(r: Report, lang: str = "en") -> str:
     if r.promoted_channels:
         names = ", ".join(f"@{n}" if not n.startswith("+") else "private link" for n, _ in r.promoted_channels[:5])
         lines.append(f"• {tx['promoted']}: {names}")
-    if r.cpm is not None:
-        lines.append(f"• {tx['cpm']}: {r.cpm}")
     if r.flags:
         lines += ["", f"{tx['flags']}:"]
         order = {"red": 0, "yellow": 1, "green": 2}
@@ -129,7 +145,7 @@ def to_dict(r: Report) -> dict:
         "err": r.err, "views_cv": r.views_cv, "reaction_rate": r.reaction_rate,
         "ad_share": r.ad_share, "ad_median_views": r.ad_median_views,
         "promoted_channels": r.promoted_channels, "forwarded_share": r.forwarded_share,
-        "price": r.price, "cpm": r.cpm,
+        "price": r.price, "cpm": r.cpm, "err_factor": r.err_factor,
         "flags": [{"level": f.level, "code": f.code, "params": f.params} for f in r.flags],
         "top_posts": [{"id": p.id, "views": p.views} for p in r.top_posts],
     }
