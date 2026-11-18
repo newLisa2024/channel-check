@@ -41,8 +41,8 @@ FLAG_TEXT = {
 
 TEXT = {
     "en": {
-        "verdict": {"green": "🟢 Looks good for ads", "yellow": "🟡 Proceed with caution",
-                    "red": "🔴 High risk, better skip", "unknown": "⚪ Not enough data"},
+        "verdict": {"green": "🟢 The audience looks real", "yellow": "🟡 Mixed signals, check carefully",
+                    "red": "🔴 Looks like fake or inactive audience", "unknown": "⚪ Not enough data"},
         "confidence": {"low": "low", "medium": "medium", "high": "high"},
         "subs": "Subscribers", "posts": "Posts analyzed", "period": "Period", "freq": "Posts per day",
         "median": "Typical post views (median)", "err": "Reach (views / subscribers)",
@@ -53,8 +53,8 @@ TEXT = {
         "note": "Heuristic estimate from public data only. Always compare with other channels in the same niche.",
     },
     "ru": {
-        "verdict": {"green": "🟢 Подходит для рекламы", "yellow": "🟡 Осторожно",
-                    "red": "🔴 Высокий риск, лучше пропустить", "unknown": "⚪ Недостаточно данных"},
+        "verdict": {"green": "🟢 Аудитория выглядит живой", "yellow": "🟡 Есть сомнения, проверьте внимательнее",
+                    "red": "🔴 Похоже на накрутку или неактивную аудиторию", "unknown": "⚪ Недостаточно данных"},
         "confidence": {"low": "низкая", "medium": "средняя", "high": "высокая"},
         "subs": "Подписчики", "posts": "Проанализировано постов", "period": "Период", "freq": "Постов в день",
         "median": "Просмотры обычного поста (медиана)", "err": "Охват (просмотры / подписчики)",

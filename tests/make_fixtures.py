@@ -16,7 +16,7 @@ OUT = Path(__file__).parent / "fixtures"
 def card(name: str, title: str, subs: int) -> str:
     return f"""<html><body><div class="tgme_page">
 <div class="tgme_page_photo"></div>
-<div class="tgme_page_title" dir="auto"><span dir="auto">{title}</span></div>
+<div class="tgme_page_title" dir="auto"><span dir="auto">{title}</span><i class="verified-icon"><b>✔</b></i></div>
 <div class="tgme_page_extra">{subs:,} subscribers</div>
 <div class="tgme_page_description" dir="auto">Test channel description</div>
 </div></body></html>""".replace(",", " ")

@@ -58,3 +58,27 @@ def test_suspicious_channel_is_red():
     codes = {f.code for f in r.flags}
     assert r.verdict == "red"
     assert {"low_err", "uniform_views", "ad_heavy"} <= codes
+
+
+def test_title_without_badge():
+    r = run("healthy_test")
+    assert r.channel.title == "Healthy Test Channel"
+    assert r.channel.verified is True
+
+
+@pytest.mark.parametrize("text,is_promo", [
+    ("Subscribe to @partner_channel for daily news", True),
+    ("Подписывайтесь на @partner_channel", True),
+    ("We will follow up with @partner_channel next week", False),
+    ("Thanks to @partner_channel for the data, following the release", False),
+    ("Access is limited to subscribers. Thanks @partner_channel", False),
+    ("Our subscribers loved the @partner_channel report", False),
+    ("Спасибо подписчикам канала @partner_channel", False),
+    ("Already subscribed to @partner_channel", False),
+])
+def test_promo_detection(text, is_promo):
+    from tgcheck.parse import parse_preview
+    html = ('<div class="tgme_widget_message" data-post="me_channel/1">'
+            f'<div class="tgme_widget_message_text">{text}</div></div>')
+    posts, _ = parse_preview(html, "me_channel")
+    assert bool(posts[0].promo_of) is is_promo

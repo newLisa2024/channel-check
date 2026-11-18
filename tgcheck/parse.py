@@ -16,7 +16,11 @@ AD_MARKERS = re.compile(
     re.IGNORECASE,
 )
 # Calls to subscribe to *another* channel: typical for cross-promotion posts.
-SUBSCRIBE_CALL = re.compile(r"(подпис|subscribe|join (us|the channel|now)|follow)", re.IGNORECASE)
+SUBSCRIBE_CALL = re.compile(
+    r"(?<!\w)(подпиш\w*|подписыва\w*|subscribe(?!\w)|join (us|the channel|now|here)(?!\w)"
+    r"|follow (us|me|the channel)(?!\w)|follow @)",
+    re.IGNORECASE,
+)
 CHANNEL_LINK = re.compile(r"(?:t\.me/|telegram\.me/)(\+?[A-Za-z0-9_]{4,})", re.IGNORECASE)
 MENTION = re.compile(r"(?<![\w@])@([A-Za-z][A-Za-z0-9_]{3,31})")
 
@@ -74,8 +78,8 @@ def parse_channel_card(html: str, username: str) -> ChannelInfo:
     info = ChannelInfo(username=username)
     title = soup.select_one(".tgme_page_title")
     if title:
-        info.title = title.get_text(" ", strip=True)
         info.verified = bool(title.select_one(".verified-icon"))
+        info.title = _clean_title(title)
     description = soup.select_one(".tgme_page_description")
     if description:
         info.description = description.get_text(" ", strip=True)
@@ -87,6 +91,13 @@ def parse_channel_card(html: str, username: str) -> ChannelInfo:
         if match:
             info.subscribers = parse_count(match.group(1))
     return info
+
+
+def _clean_title(node) -> str:
+    """Channel title without the verified badge (the badge is reported separately)."""
+    for badge in node.select(".verified-icon, .scam-icon, .fake-icon"):
+        badge.decompose()
+    return node.get_text(" ", strip=True).replace("\u2714", "").replace("\ufe0f", "").strip()
 
 
 def post_ids(html: str) -> list[int]:
@@ -112,7 +123,7 @@ def parse_preview(html: str, username: str) -> tuple[list[Post], dict]:
             header["subscribers"] = parse_count(value.get_text(strip=True))
     title = soup.select_one(".tgme_channel_info_header_title")
     if title:
-        header["title"] = title.get_text(" ", strip=True)
+        header["title"] = _clean_title(title)
 
     posts: list[Post] = []
     own = username.lower()
