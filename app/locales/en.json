@@ -1,6 +1,6 @@
 {
   "start_greeting": "👋 I check public Telegram channels before you buy an ad: real reach, signs of fake subscribers and a fair price per 1,000 views.",
-  "start_free": "🎁 You have {n} free check. Send me a channel: @name, a t.me link, or forward any post from it.",
+  "start_free": "🎁 You have {n} {free_word}. Send me a channel: @name, a t.me link, or forward any post from it.",
   "start_balance": "Checks left: {free} free, {paid} paid. Send me a channel to check.",
   "btn_example": "Try on an example",
   "not_a_channel": "I need a public channel: @name or a t.me/name link. You can also forward a post from the channel.",
@@ -18,7 +18,7 @@
   "invoice_title": "{checks} channel checks",
   "invoice_title_one": "1 channel check",
   "invoice_desc": "Checks of public Telegram channels: real reach, fake signs, fair ad price. Checks don't expire.",
-  "paid_ok": "✅ Payment received: +{checks} checks. Checks left: {paid}. Send me a channel.",
+  "paid_ok": "✅ Payment received: +{checks} {checks_word}. Checks left: {paid}. Send me a channel.",
   "balance": "Checks left: {free} free, {paid} paid.",
   "btn_buy": "Buy checks",
   "rate_limited": "Too many checks in an hour. Please try again a bit later.",
@@ -47,5 +47,7 @@
   "send_channel": "Send me a channel: @name, a t.me link, or forward any post from it.",
   "buy_prompt": "Choose a pack, payment is in Telegram Stars ⭐. Checks don't expire.",
   "btn_check_channel": "🔍 Check a channel",
-  "invoice_outdated": "Invoice is outdated, please open /buy again."
+  "invoice_outdated": "Invoice is outdated, please open /buy again.",
+  "w_checks": "check|checks",
+  "w_free_checks": "free check|free checks"
 }

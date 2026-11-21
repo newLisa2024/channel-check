@@ -14,7 +14,7 @@ from .. import repo
 from ..channel_input import ChannelRequest, from_forward, parse_price, parse_text
 from ..config import Settings
 from ..db import Check, User
-from ..i18n import available, pick_language, t
+from ..i18n import plural, available, pick_language, t
 from ..keyboards import check_channel_keyboard, full_keyboard, report_keyboard
 from ..products import PACKS, invoice_payload, parse_payload
 from ..ratelimit import allow
@@ -67,7 +67,7 @@ def start_message(user: User) -> tuple[str, InlineKeyboardMarkup]:
     lang = user.language
     free, paid = user.free_checks_left, user.paid_checks_left
     if free and not paid:
-        second = t(lang, "start_free", n=free)
+        second = t(lang, "start_free", n=free, free_word=plural(lang, "w_free_checks", free))
     elif free or paid:
         second = t(lang, "start_balance", free=free, paid=paid)
     else:
@@ -351,7 +351,9 @@ async def on_paid(message: Message, sessionmaker, settings: Settings):
         if fresh:
             await repo.log_event(s, user.id, "paid", pack=pack.key, stars=payment.total_amount)
         user = await s.get(User, user.id)
-    await message.answer(t(user.language, "paid_ok", checks=pack.checks, paid=user.paid_checks_left),
+    await message.answer(t(user.language, "paid_ok", checks=pack.checks,
+                           checks_word=plural(user.language, "w_checks", pack.checks),
+                           paid=user.paid_checks_left),
                          reply_markup=check_channel_keyboard(user.language))
 
 

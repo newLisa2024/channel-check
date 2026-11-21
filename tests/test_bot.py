@@ -355,3 +355,23 @@ def test_bot_disables_link_previews_by_default():
     from app.botfactory import make_bot
     bot = make_bot("123456:ABCdefGhIJKlmnoPQRstuVWXyz")
     assert bot.default.link_preview_is_disabled is True
+
+
+# --- small fixes after launch: plural forms, how to buy Stars ---------------------------------
+
+@pytest.mark.parametrize("n,word", [(1, "проверка"), (2, "проверки"), (5, "проверок"), (11, "проверок"),
+                                    (20, "проверок"), (21, "проверка"), (22, "проверки"), (112, "проверок")])
+def test_russian_plural(n, word):
+    from app.i18n import plural
+    assert plural("ru", "w_checks", n) == word
+
+
+def test_english_plural_and_paid_message():
+    from app.i18n import plural
+    assert plural("en", "w_checks", 1) == "check" and plural("en", "w_checks", 5) == "checks"
+    text = t("ru", "paid_ok", checks=1, checks_word=plural("ru", "w_checks", 1), paid=1)
+    assert "+1 проверка." in text
+
+
+def test_russian_buy_prompt_explains_how_to_get_stars():
+    assert "за рубли" in t("ru", "buy_prompt") and "за рубли" in t("ru", "no_credits")

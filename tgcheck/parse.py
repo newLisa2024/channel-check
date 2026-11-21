@@ -167,10 +167,10 @@ def parse_preview(html: str, username: str) -> tuple[list[Post], dict]:
         for source in links + [text]:
             for match in CHANNEL_LINK.findall(source):
                 if match.lower() not in (own, "s", "share", "proxy", "addstickers", "c") and not match.lower().startswith(own + "/"):
-                    promoted.add(match.split("/")[0])
+                    promoted.add(match.split("/")[0].lower())
         for match in MENTION.findall(text):
             if match.lower() != own:
-                promoted.add(match)
+                promoted.add(match.lower())
         # A link to another channel is only treated as promotion together with a call to subscribe.
         promo_of = sorted(promoted) if promoted and SUBSCRIBE_CALL.search(text) else []
 

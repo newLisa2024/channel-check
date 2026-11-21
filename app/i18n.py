@@ -26,6 +26,20 @@ def pick_language(code: str | None) -> str:
     return base if base in available() else DEFAULT
 
 
+def plural(lang: str, key: str, n: int) -> str:
+    """Word form for a number. The locale value lists the forms separated by "|":
+    ru: one|few|many ("проверка|проверки|проверок"), en: one|other ("check|checks")."""
+    forms = t(lang, key).split("|")
+    if lang == "ru" and len(forms) == 3:
+        n10, n100 = n % 10, n % 100
+        if n10 == 1 and n100 != 11:
+            return forms[0]
+        if 2 <= n10 <= 4 and not 12 <= n100 <= 14:
+            return forms[1]
+        return forms[2]
+    return forms[0] if n == 1 or len(forms) == 1 else forms[-1]
+
+
 def t(lang: str, key: str, **params) -> str:
     text = load(lang).get(key) or load(DEFAULT).get(key) or key
     return text.format(**params) if params else text

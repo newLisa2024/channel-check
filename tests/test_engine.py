@@ -211,3 +211,11 @@ def test_preview_pages_keeps_paging_until_enough_mature_posts():
         assert len(pages) == 5                       # without enough(): old behaviour
     finally:
         fetcher.close()
+
+
+def test_channel_names_are_case_insensitive():
+    from tgcheck.parse import parse_preview
+    html = ('<div class="tgme_widget_message" data-post="me_channel/1">'
+            '<div class="tgme_widget_message_text">Подписывайтесь: @GPT4Telegrambot и t.me/gpt4telegrambot</div></div>')
+    posts, _ = parse_preview(html, "me_channel")
+    assert posts[0].promo_of == ["gpt4telegrambot"]
