@@ -74,11 +74,13 @@ class ChannelFetcher:
     def channel_page(self, name: str) -> str:
         return self._get(f"{BASE}/{name}", f"{name}_card")
 
-    def preview_pages(self, name: str, max_posts: int, parse_page) -> list[str]:
+    def preview_pages(self, name: str, max_posts: int, parse_page, enough=None, hard_max: int | None = None) -> list[str]:
         """Loads preview pages until max_posts posts are collected or history ends.
 
         parse_page(html) must return the list of post ids found on that page;
         it is passed in so this module stays independent from the parser.
+        enough(pages) -> bool, optional: after max_posts, keep loading older pages until it returns
+        True or hard_max posts are collected (very frequent channels need more posts to have mature ones).
         """
         pages: list[str] = []
         seen: set[int] = set()
@@ -94,7 +96,8 @@ class ChannelFetcher:
             pages.append(html)
             seen.update(ids)
             if len(seen) >= max_posts:
-                break
+                if enough is None or len(seen) >= (hard_max or max_posts) or enough(pages):
+                    break
             url = f"{BASE}/s/{name}?before={min(ids)}"
             time.sleep(self.delay)
         return pages

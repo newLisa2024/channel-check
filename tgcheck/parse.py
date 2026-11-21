@@ -15,6 +15,12 @@ AD_MARKERS = re.compile(
     r"|#ad\b|#ads\b|#sponsored|\bsponsored\b|\bpaid partnership\b|\badvertisement\b)",
     re.IGNORECASE,
 )
+# The subset that is almost never part of a channel's own footer ("Реклама: @manager" is a footer,
+# an erid is not). Used when the plain word "реклама" turns out to be in almost every post.
+AD_MARKERS_STRONG = re.compile(
+    r"(#реклама|#промо|на правах рекламы|\berid\b|#ad\b|#ads\b|#sponsored|\bpaid partnership\b)",
+    re.IGNORECASE,
+)
 # Calls to subscribe to *another* channel: typical for cross-promotion posts.
 SUBSCRIBE_CALL = re.compile(
     r"(?<!\w)(подпиш\w*|подписыва\w*|subscribe(?!\w)|join (us|the channel|now|here)(?!\w)"
@@ -45,6 +51,7 @@ class Post:
     forwarded: bool = False
     text: str = ""
     explicit_ad: bool = False
+    strong_ad: bool = False
     promo_of: list[str] = field(default_factory=list)  # other channels promoted in the post
 
     @property
@@ -176,6 +183,7 @@ def parse_preview(html: str, username: str) -> tuple[list[Post], dict]:
             forwarded=node.select_one(".tgme_widget_message_forwarded_from") is not None,
             text=text[:500],
             explicit_ad=bool(AD_MARKERS.search(text)),
+            strong_ad=bool(AD_MARKERS_STRONG.search(text)),
             promo_of=promo_of,
         ))
     return posts, header

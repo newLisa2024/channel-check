@@ -15,17 +15,34 @@ import sys
 import time
 from pathlib import Path
 
+from datetime import datetime, timezone
+
 from .fetch import ChannelFetcher, FetchError, normalize_channel
-from .metrics import analyze
+from .metrics import THRESHOLDS, analyze, is_mature
 from .parse import ChannelInfo, parse_channel_card, parse_preview, post_ids
 from .report import render, to_dict
 
 
+def mature_count(pages: list[str], name: str, now: datetime | None = None) -> int:
+    now = now or datetime.now(timezone.utc)
+    seen: set[int] = set()
+    count = 0
+    for html in pages:
+        for p in parse_preview(html, name)[0]:
+            if p.id not in seen:
+                seen.add(p.id)
+                count += is_mature(p, now)
+    return count
+
+
 def collect_online(name: str, max_posts: int, save_dir: Path | None):
     fetcher = ChannelFetcher(save_dir=save_dir)
+    target = THRESHOLDS["target_mature_posts"]
     try:
         card_html = fetcher.channel_page(name)
-        pages = fetcher.preview_pages(name, max_posts, post_ids)
+        pages = fetcher.preview_pages(name, max_posts, post_ids,
+                                      enough=lambda got: mature_count(got, name) >= target,
+                                      hard_max=THRESHOLDS["max_posts_hard"])
     finally:
         fetcher.close()
     return card_html, pages
@@ -53,7 +70,14 @@ def check(name: str, card_html: str, pages: list[str], max_posts: int, price: fl
             if p.id not in seen:
                 seen.add(p.id)
                 posts.append(p)
-    posts = sorted(posts, key=lambda p: p.id, reverse=True)[:max_posts]
+    posts = sorted(posts, key=lambda p: p.id, reverse=True)
+    newest = posts[:max_posts]
+    now = datetime.now(timezone.utc)
+    if sum(is_mature(p, now) for p in newest) < THRESHOLDS["target_mature_posts"]:
+        # A very frequent channel: older pages were loaded on purpose, keep them (up to the hard limit).
+        posts = posts[:THRESHOLDS["max_posts_hard"]]
+    else:
+        posts = newest
 
     if not posts and not header:
         info.preview_available = False

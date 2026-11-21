@@ -15,21 +15,29 @@ from .parse import ChannelInfo, Post
 THRESHOLDS = {
     "mature_post_age_hours": 48,     # views still grow fast during the first 1-2 days
     "min_mature_posts": 8,           # fewer posts -> low confidence
+    "target_mature_posts": 30,       # very frequent channels: keep paging back until this many mature posts...
+    "max_posts_hard": 300,           # ...but never load more than this many posts
     # Reach (median views / subscribers). Base values for channels posting < 1.5 times a day;
     # frequent posting lowers per-post reach, see FREQUENCY_FACTORS.
     "err_critical": 0.03,            # below this the audience is mostly dead or fake -> red
     "err_low": 0.08,                 # below this: red only together with fake signs, otherwise yellow
     "err_green": 0.20,               # this and above is healthy
     "cv_too_uniform": 0.10,          # views almost identical on every post -> possible bot views
+                                     # (red only together with low reach or few reactions, otherwise "check manually")
+    "err_high": 0.50,                # 50%+ of subscribers see a typical post: rare, worth a manual look
+    "views_exceed_ratio": 1.0,       # median views above the subscriber count
     "reaction_rate_low": 0.002,      # < 0.2% reactions per view on a big channel -> suspicious
     "reaction_rate_high": 0.08,      # > 8% reactions per view is unusual -> check manually
     "reaction_check_min_views": 3000,
     "ad_share_high": 0.40,           # 40%+ of posts are ads -> audience is tired of ads
+    "signature_share": 0.50,         # a channel linked in half of all posts is the channel's own footer, not an ad
+    "footer_marker_share": 0.80,     # the word "реклама" in 80%+ of posts is a footer ("Реклама: @manager")
+    "min_posts_for_signature": 10,
     "inactive_days": 30,
 }
 
 # (min posts per day, multiplier for err_* thresholds)
-FREQUENCY_FACTORS = [(3.0, 0.6), (1.5, 0.75), (0.0, 1.0)]
+FREQUENCY_FACTORS = [(8.0, 0.5), (3.0, 0.6), (1.5, 0.75), (0.0, 1.0)]
 
 
 def frequency_factor(posts_per_day: float | None) -> float:
@@ -75,6 +83,33 @@ class Report:
     top_posts: list[Post] = field(default_factory=list)
 
 
+def is_mature(post: Post, now: datetime) -> bool:
+    cutoff = now - timedelta(hours=THRESHOLDS["mature_post_age_hours"])
+    return post.views is not None and post.date is not None and post.date <= cutoff and not post.forwarded
+
+
+def ad_posts(own_posts: list[Post]) -> tuple[list[Post], set[str]]:
+    """Posts that look like ads, and the channel's own "signature" links that are ignored.
+
+    A channel that links the same other channel (its chat, its bot, a sister channel) or writes
+    "Реклама: @manager" in almost every post would otherwise look like 100% ads.
+    """
+    t = THRESHOLDS
+    n = len(own_posts)
+    signature: set[str] = set()
+    use_weak_markers = True
+    if n >= t["min_posts_for_signature"]:
+        counts: dict[str, int] = {}
+        for p in own_posts:
+            for name in set(p.promo_of):
+                counts[name] = counts.get(name, 0) + 1
+        signature = {name for name, c in counts.items() if c >= t["signature_share"] * n}
+        use_weak_markers = sum(p.explicit_ad for p in own_posts) < t["footer_marker_share"] * n
+    ads = [p for p in own_posts
+           if p.strong_ad or (use_weak_markers and p.explicit_ad) or set(p.promo_of) - signature]
+    return ads, signature
+
+
 def _median(values: list[int]) -> int | None:
     return int(statistics.median(values)) if values else None
 
@@ -100,8 +135,7 @@ def analyze(channel: ChannelInfo, posts: list[Post], price: float | None = None,
         report.posts_per_day = round(len(dated) / span_days, 2)
 
     # Only "mature" posts: fresh ones haven't collected their views yet.
-    cutoff = now - timedelta(hours=t["mature_post_age_hours"])
-    mature = [p for p in posts if p.views is not None and p.date and p.date <= cutoff and not p.forwarded]
+    mature = [p for p in posts if is_mature(p, now)]
     report.mature_posts = len(mature)
     views = [p.views for p in mature]
     report.median_views = _median(views)
@@ -118,13 +152,14 @@ def analyze(channel: ChannelInfo, posts: list[Post], price: float | None = None,
 
     own_posts = [p for p in posts if not p.forwarded]
     if own_posts:
-        ads = [p for p in own_posts if p.likely_ad]
+        ads, signature = ad_posts(own_posts)
         report.ad_share = len(ads) / len(own_posts)
         report.ad_median_views = _median([p.views for p in ads if p.views is not None and p in mature])
         counts: dict[str, int] = {}
         for p in ads:
             for name in p.promo_of:
-                counts[name] = counts.get(name, 0) + 1
+                if name not in signature:
+                    counts[name] = counts.get(name, 0) + 1
         report.promoted_channels = sorted(counts.items(), key=lambda kv: -kv[1])[:10]
     report.forwarded_share = sum(p.forwarded for p in posts) / len(posts)
 
@@ -172,15 +207,22 @@ def _score(r: Report, now: datetime) -> None:
             flags.append(Flag("yellow", "mid_err", {"pct": pct}))
         else:
             flags.append(Flag("green", "good_err", {"pct": pct}))
-        if r.err > 1.5:
+        if r.err > t["views_exceed_ratio"]:
             flags.append(Flag("yellow", "views_exceed_subs", {}))
+        elif r.err >= t["err_high"]:
+            flags.append(Flag("yellow", "high_err", {"pct": pct}))
         if r.err_factor < 1.0:
             flags.append(Flag("green", "frequent_posting", {"ppd": r.posts_per_day}))
     elif r.channel.subscribers is None:
         flags.append(Flag("yellow", "no_subs", {}))
 
     if uniform:
-        flags.append(Flag("red", "uniform_views", {}))
+        # Steady small audiences can have even views too: alone it's a reason to look, not a verdict.
+        weak_reach = r.err is not None and r.err < err_low
+        if weak_reach or low_reactions:
+            flags.append(Flag("red", "uniform_views", {}))
+        else:
+            flags.append(Flag("yellow", "uniform_views_check", {}))
 
     if r.reaction_rate is not None and big_enough:
         if low_reactions:
