@@ -41,5 +41,11 @@
   "refund_ok": "Refunded: {stars} ⭐ to user {user}.",
   "refund_fail": "Refund failed: {error}",
   "refund_usage": "Usage: /refund <telegram_payment_charge_id>",
-  "summary_findings": "Main findings:"
+  "summary_findings": "Main findings:",
+  "start_empty": "Your free check has been used. Buy a pack: payment in Telegram Stars ⭐, checks don't expire. You can still see the example for free.",
+  "demo_note": "🧪 Example on @{channel}: free, no check is spent. The report comes in the next message.",
+  "send_channel": "Send me a channel: @name, a t.me link, or forward any post from it.",
+  "buy_prompt": "Choose a pack, payment is in Telegram Stars ⭐. Checks don't expire.",
+  "btn_check_channel": "🔍 Check a channel",
+  "invoice_outdated": "Invoice is outdated, please open /buy again."
 }

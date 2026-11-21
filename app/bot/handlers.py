@@ -15,7 +15,7 @@ from ..channel_input import ChannelRequest, from_forward, parse_price, parse_tex
 from ..config import Settings
 from ..db import Check, User
 from ..i18n import available, pick_language, t
-from ..keyboards import report_keyboard
+from ..keyboards import check_channel_keyboard, full_keyboard, report_keyboard
 from ..products import PACKS, invoice_payload, parse_payload
 from ..ratelimit import allow
 from ..render import full, summary
@@ -62,6 +62,23 @@ async def bot_username(message_or_bot) -> str | None:
 
 # --- start / info ------------------------------------------------------------
 
+def start_message(user: User) -> tuple[str, InlineKeyboardMarkup]:
+    """/start text and buttons. With an empty balance the first button is the shop, not a dead end."""
+    lang = user.language
+    free, paid = user.free_checks_left, user.paid_checks_left
+    if free and not paid:
+        second = t(lang, "start_free", n=free)
+    elif free or paid:
+        second = t(lang, "start_balance", free=free, paid=paid)
+    else:
+        second = t(lang, "start_empty")
+    rows = []
+    if not free and not paid:
+        rows.append([InlineKeyboardButton(text=t(lang, "btn_buy"), callback_data="buymenu")])
+    rows.append([InlineKeyboardButton(text=t(lang, "btn_example"), callback_data="example")])
+    return f"{t(lang, 'start_greeting')}\n\n{second}", InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 @router.message(CommandStart())
 async def cmd_start(message: Message, command: CommandObject, sessionmaker, settings: Settings):
     referred_by = None
@@ -70,11 +87,8 @@ async def cmd_start(message: Message, command: CommandObject, sessionmaker, sett
     user, created = await ensure_user(sessionmaker, settings, message.from_user, referred_by)
     async with sessionmaker() as s:
         await repo.log_event(s, user.id, "start", created=created, ref=referred_by)
-    lang = user.language
-    second = (t(lang, "start_free", n=user.free_checks_left) if user.free_checks_left and not user.paid_checks_left
-              else t(lang, "start_balance", free=user.free_checks_left, paid=user.paid_checks_left))
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=t(lang, "btn_example"), callback_data="example")]])
-    await message.answer(f"{t(lang, 'start_greeting')}\n\n{second}", reply_markup=kb)
+    text, kb = start_message(user)
+    await message.answer(text, reply_markup=kb)
 
 
 @router.message(Command("help"))
@@ -135,18 +149,19 @@ async def cmd_check(message: Message, sessionmaker, settings: Settings):
 @router.callback_query(F.data == "another")
 async def cb_another(call: CallbackQuery, sessionmaker, settings: Settings):
     user, _ = await ensure_user(sessionmaker, settings, call.from_user)
-    await call.message.answer(t(user.language, "not_a_channel"))
+    await call.message.answer(t(user.language, "send_channel"))
     await call.answer()
 
 
 # --- channel input -----------------------------------------------------------
 
 @router.callback_query(F.data == "example")
-async def cb_example(call: CallbackQuery, sessionmaker, settings: Settings):
+async def cb_example(call: CallbackQuery, sessionmaker, settings: Settings, arq):
+    """The demo is free: it never spends the user's check (that one is for their own channel)."""
     user, _ = await ensure_user(sessionmaker, settings, call.from_user)
-    await call.message.answer(t(user.language, "ask_price", channel=EXAMPLE_CHANNEL),
-                              reply_markup=price_keyboard(user.language, EXAMPLE_CHANNEL))
     await call.answer()
+    await call.message.answer(t(user.language, "demo_note", channel=EXAMPLE_CHANNEL))
+    await start_check(call.message, user, ChannelRequest(EXAMPLE_CHANNEL), sessionmaker, settings, arq, demo=True)
 
 
 @router.message(StateFilter(PriceInput.waiting), F.text)
@@ -205,17 +220,26 @@ async def cb_price(call: CallbackQuery, state: FSMContext, sessionmaker, setting
 
 # --- the check itself --------------------------------------------------------
 
-async def start_check(message: Message, user: User, request: ChannelRequest, sessionmaker, settings: Settings, arq):
-    """message = where to answer (the user's chat). Spends a check only when a report is delivered."""
+def _with_note(note: str | None, body: str) -> str:
+    return f"{note}\n\n{body}" if note else body
+
+
+async def start_check(message: Message, user: User, request: ChannelRequest, sessionmaker, settings: Settings, arq,
+                      demo: bool = False):
+    """message = where to answer (the user's chat).
+
+    A check is reserved from the balance before the work starts and returned by the worker if the check
+    fails, so the user only pays for a delivered report. demo=True never touches the balance (credit_kind "none")."""
     lang = user.language
     channel = request.username
     async with sessionmaker() as s:
-        await repo.log_event(s, user.id, "check_requested", channel=channel, price=request.price)
+        await repo.log_event(s, user.id, "check_requested", channel=channel, price=request.price, demo=demo)
 
         # 1. The same user checked this channel recently: show it again for free.
         own = await repo.own_recent_check(s, user.id, channel, settings.own_repeat_hours)
         if own and own.report:
-            await message.answer(f"{t(lang, 'repeat_free_note')}\n\n{summary(own.report, lang, request.price)}",
+            note = None if demo else t(lang, "repeat_free_note")
+            await message.answer(_with_note(note, summary(own.report, lang, request.price)),
                                  reply_markup=report_keyboard(lang, own.id, await bot_username(message)))
             return
 
@@ -223,7 +247,7 @@ async def start_check(message: Message, user: User, request: ChannelRequest, ses
             await message.answer(t(lang, "rate_limited"))
             return
 
-        kind = await repo.reserve_credit(s, user.id)
+        kind = "none" if demo else await repo.reserve_credit(s, user.id)
         if not kind:
             await repo.log_event(s, user.id, "invoice_shown", where="no_credits")
             await message.answer(t(lang, "no_credits"), reply_markup=buy_keyboard(lang))
@@ -235,7 +259,8 @@ async def start_check(message: Message, user: User, request: ChannelRequest, ses
             check = await repo.create_check(s, user_id=user.id, channel_username=channel, price=request.price,
                                             status="ok", verdict=cached.verdict, report=cached.report,
                                             from_cache=True, credit_kind=kind)
-            await message.answer(f"{t(lang, 'cached_note', hours=settings.cache_hours)}\n\n{summary(check.report, lang, request.price)}",
+            note = None if demo else t(lang, "cached_note", hours=settings.cache_hours)
+            await message.answer(_with_note(note, summary(check.report, lang, request.price)),
                                  reply_markup=report_keyboard(lang, check.id, await bot_username(message)))
             return
 
@@ -263,7 +288,8 @@ async def cb_full(call: CallbackQuery, sessionmaker, settings: Settings):
             await call.answer()
             return
         await repo.log_event(s, user.id, "report_opened", check_id=check_id)
-    await call.message.answer(full(check.report, user.language, check.price))
+    await call.message.answer(full(check.report, user.language, check.price),
+                              reply_markup=full_keyboard(user.language, await bot_username(call.message)))
     await call.answer()
 
 
@@ -272,13 +298,13 @@ async def cb_full(call: CallbackQuery, sessionmaker, settings: Settings):
 @router.message(Command("buy"))
 async def cmd_buy(message: Message, sessionmaker, settings: Settings):
     user, _ = await ensure_user(sessionmaker, settings, message.from_user)
-    await message.answer(t(user.language, "no_credits"), reply_markup=buy_keyboard(user.language))
+    await message.answer(t(user.language, "buy_prompt"), reply_markup=buy_keyboard(user.language))
 
 
 @router.callback_query(F.data == "buymenu")
 async def cb_buymenu(call: CallbackQuery, sessionmaker, settings: Settings):
     user, _ = await ensure_user(sessionmaker, settings, call.from_user)
-    await call.message.answer(t(user.language, "no_credits"), reply_markup=buy_keyboard(user.language))
+    await call.message.answer(t(user.language, "buy_prompt"), reply_markup=buy_keyboard(user.language))
     await call.answer()
 
 
@@ -307,7 +333,7 @@ async def on_pre_checkout(query: PreCheckoutQuery):
     if ok:
         await query.answer(ok=True)
     else:
-        await query.answer(ok=False, error_message="Invoice is outdated, please open /buy again.")
+        await query.answer(ok=False, error_message=t(pick_language(query.from_user.language_code), "invoice_outdated"))
 
 
 @router.message(F.successful_payment)
@@ -325,7 +351,8 @@ async def on_paid(message: Message, sessionmaker, settings: Settings):
         if fresh:
             await repo.log_event(s, user.id, "paid", pack=pack.key, stars=payment.total_amount)
         user = await s.get(User, user.id)
-    await message.answer(t(user.language, "paid_ok", checks=pack.checks, paid=user.paid_checks_left))
+    await message.answer(t(user.language, "paid_ok", checks=pack.checks, paid=user.paid_checks_left),
+                         reply_markup=check_channel_keyboard(user.language))
 
 
 @router.message(Command("refund"))

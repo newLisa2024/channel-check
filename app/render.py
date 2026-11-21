@@ -5,6 +5,8 @@ again later with a different ad price or in another language."""
 
 from __future__ import annotations
 
+import string
+
 from tgcheck.report import FLAG_TEXT, TEXT
 
 from .i18n import t
@@ -15,6 +17,39 @@ ICON = {"red": "🔴", "yellow": "🟡", "green": "🟢"}
 
 def _lang(lang: str) -> str:
     return lang if lang in TEXT else "en"
+
+
+class _DecimalComma(string.Formatter):
+    """str.format that writes floats with a decimal comma (Russian style), leaving everything else as is."""
+
+    def format_field(self, value, format_spec):
+        out = super().format_field(value, format_spec)
+        return out.replace(".", ",") if isinstance(value, float) else out
+
+
+_COMMA = _DecimalComma()
+
+
+def _fmt(template: str, lang: str, **params) -> str:
+    return _COMMA.format(template, **params) if lang == "ru" else template.format(**params)
+
+
+def _dec(value: float, lang: str, spec: str = "") -> str:
+    out = format(value, spec)
+    return out.replace(".", ",") if lang == "ru" else out
+
+
+def _date(iso: str, lang: str) -> str:
+    day = iso[:10]
+    if lang == "ru":
+        y, m, d = day.split("-")
+        return f"{d}.{m}.{y}"
+    return day
+
+
+def _period(first: str, last: str, lang: str) -> str:
+    sep = " – " if lang == "ru" else " → "
+    return f"{_date(first, lang)}{sep}{_date(last, lang)}"
 
 
 def _num(n, na: str) -> str:
@@ -39,7 +74,7 @@ def _header(report: dict, lang: str, price: float | None) -> list[str]:
         lines.append(tx["reach"].format(n=_num(report["median_views"], tx["na"])))
         value = cpm(report, price)
         if value is not None:
-            lines.append(tx["reach_price"].format(cpm=value))
+            lines.append(_fmt(tx["reach_price"], lang, cpm=value))
     return lines
 
 
@@ -48,7 +83,7 @@ def _flag_lines(report: dict, lang: str, limit: int | None = None) -> list[str]:
     flags = sorted(report.get("flags") or [], key=lambda f: ORDER.get(f["level"], 3))
     if limit:
         flags = flags[:limit]
-    return [f"{ICON.get(f['level'], '•')} {fx[f['code']].format(**f['params'])}" for f in flags if f["code"] in fx]
+    return [f"{ICON.get(f['level'], '•')} {_fmt(fx[f['code']], lang, **f['params'])}" for f in flags if f["code"] in fx]
 
 
 def summary(report: dict, lang: str, price: float | None = None) -> str:
@@ -70,14 +105,14 @@ def full(report: dict, lang: str, price: float | None = None) -> str:
              f"• {tx['subs']}: {_num(ch.get('subscribers'), na)}",
              f"• {tx['posts']}: {report.get('posts_analyzed', 0)}"]
     if report.get("first_post") and report.get("last_post"):
-        lines.append(f"• {tx['period']}: {report['first_post'][:10]} → {report['last_post'][:10]}")
+        lines.append(f"• {tx['period']}: {_period(report['first_post'], report['last_post'], lang)}")
     if report.get("posts_per_day") is not None:
-        lines.append(f"• {tx['freq']}: {report['posts_per_day']}")
+        lines.append(f"• {tx['freq']}: {_dec(report['posts_per_day'], lang)}")
     lines.append(f"• {tx['median']}: {_num(report.get('median_views'), na)}")
     err = report.get("err")
-    lines.append(f"• {tx['err']}: {err * 100:.1f}%" if err is not None else f"• {tx['err']}: {na}")
+    lines.append(f"• {tx['err']}: {_dec(err * 100, lang, '.1f')}%" if err is not None else f"• {tx['err']}: {na}")
     rr = report.get("reaction_rate")
-    lines.append(f"• {tx['reactions']}: {rr * 100:.2f}%" if rr is not None else f"• {tx['reactions']}: {tx['reactions_off']}")
+    lines.append(f"• {tx['reactions']}: {_dec(rr * 100, lang, '.2f')}%" if rr is not None else f"• {tx['reactions']}: {tx['reactions_off']}")
     if report.get("ad_share") is not None:
         lines.append(f"• {tx['ads']}: {report['ad_share'] * 100:.0f}%")
     promoted = report.get("promoted_channels") or []

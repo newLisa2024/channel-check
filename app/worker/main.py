@@ -14,6 +14,7 @@ from tgcheck.fetch import FetchError, normalize_channel
 from tgcheck.report import to_dict
 
 from .. import repo
+from ..botfactory import make_bot
 from ..config import get_settings
 from ..db import Check, User, init_db, make_engine, make_sessionmaker
 from ..i18n import t
@@ -99,7 +100,7 @@ async def startup(ctx) -> None:
     await init_db(engine)
     ctx["engine"] = engine
     ctx["sessionmaker"] = make_sessionmaker(engine)
-    ctx["bot"] = Bot(settings.bot_token)
+    ctx["bot"] = make_bot(settings.bot_token)
 
 
 async def shutdown(ctx) -> None:

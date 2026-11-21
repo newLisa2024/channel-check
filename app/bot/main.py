@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from aiogram import Bot, Dispatcher
+from aiogram import Dispatcher
 from aiogram.fsm.storage.redis import RedisStorage
 from arq import create_pool
 from arq.connections import RedisSettings
 
+from ..botfactory import make_bot
 from ..config import get_settings
 from ..db import init_db, make_engine, make_sessionmaker
 from .handlers import router
@@ -26,7 +27,7 @@ async def main() -> None:
     sessionmaker = make_sessionmaker(engine)
     arq = await create_pool(RedisSettings.from_dsn(settings.redis_url))
 
-    bot = Bot(settings.bot_token)
+    bot = make_bot(settings.bot_token)
     dp = Dispatcher(storage=RedisStorage.from_url(settings.redis_url),
                     sessionmaker=sessionmaker, settings=settings, arq=arq)
     dp.include_router(router)
