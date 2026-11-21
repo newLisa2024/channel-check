@@ -42,3 +42,7 @@ Thumbs.db
 # Batch check: --batch channels.txt --csv results.csv
 /*.csv
 channels.txt
+
+# Bot server: database dumps from deploy/backup.sh; .env.example is a template and is committed
+backups/
+!.env.example
