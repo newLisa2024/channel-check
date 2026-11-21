@@ -5,7 +5,7 @@ set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/channel-check}"
 EXPECTED_SHA="${1:-}"
-SERVICES="postgres redis bot worker backup"
+SERVICES="postgres redis bot worker backup offsite"
 
 cd "$APP_DIR"
 
